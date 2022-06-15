@@ -1,0 +1,282 @@
+---
+title: "Calculate development rate variables"
+output: html_notebook
+---
+## Contents
+1. Import data
+2. Set selection
+3. Consolidation of redundant sets
+4. Scaling
+5. Linear interpolation
+6. Obtain Dl, Dh, Dbreadth
+
+
+```{r}
+# load packages
+library(tidyverse) # for data wrangling
+library(readxl) # to import excel file
+library(cowplot)# to format plots
+library(psych) # to get geometric mean
+
+```
+
+
+## 1. Import data 
+```{r}
+
+Data <- read_xlsx("~/Desktop/Projects/ThermalPerformance/PhysiologyDatabaseVersion5.xlsx", 
+                  sheet = "WorkingTable", na = c("NA", ""))
+```
+
+
+```{r}
+# Discard parasitoids and change character to factor 
+#unique(Data$status)
+Ana <- Data[Data$status != "parasitoid",]
+rm(Data)
+
+# convert character to factor
+Ana <- Ana %>%
+  mutate_if(is.character, factor)
+
+```
+
+
+## 2. Set selection 
+To be included in development rate analyses, sets should have at least 4 temperature treatments reporting development time, and form a complete curve (rise, peak, fall). We restricted analyses to four life stages: egg, larva, pupa, and egg to adult.
+
+```{r}
+# Create "is_complete", a function to determine whether a set is:
+# "Complete" (has rise, peak, fall)
+# "Incomplete" (it's a partial curve)
+# "No data" (no development rate data available)
+Ana$set2 <- Ana$set
+is_complete <- function(dat){
+  dat <- dat[!is.na(dat$dr) & !is.na(dat$temp),] # Remove treatments with no dr data
+ if(nrow(dat) > 3 ){
+   y_max <- max(dat$dr, na.rm = T) # get maximum value for s_dr
+  x_max <- dat[dat$dr == y_max, "temp"][[1]][1]# get temperature that maximizes dr 
+  species <- unique(dat$sp)
+  lifestage <- unique(dat$lifestage)
+  seti <- unique(dat$set2)
+  print(paste("set:",seti))
+  #print(species)
+  #print(lifestage)
+  #print(x_max)
+  #print(y_max)
+  cold <- filter(dat, temp < x_max)  
+  hot <- filter(dat, temp > x_max)  
+  # if(sum(cold$dr >=0) && sum(hot$dr >=0)){
+  #     print("Complete")
+  #   } else {(print("Incomplete"))}
+  result = nrow(cold[!is.na(cold$dr),]) && nrow(hot[!is.na(hot$dr),])
+  if(result){
+    print("Complete")
+  } else {
+    print("Incomplete")
+  }
+ } else{
+   print("Less than 4 data points")
+ }
+}
+
+```
+
+
+```{r, message=FALSE}
+# Apply is_complete() to all sets
+SetAssessment <- Ana %>% 
+  group_by(set) %>% 
+  nest() %>% 
+  mutate(curve = map(data,is_complete)) %>% 
+  select(set, curve) %>% 
+  unnest(cols = curve) 
+unique(SetAssessment$curve)
+```
+
+
+From a total of `r length(unique(Ana$set))`, only  `r nrow(filter(SetAssessment, curve == "Complete"))` had a complete curve for development rate. There were `r nrow(filter(SetAssessment, curve == "Incomplete"))` incomplete sets and `r nrow(filter(SetAssessment, curve == "Less than 4 data points"))` with less than four data points.
+
+```{r}
+# Select sets of life stages of interest: egg, larva, pupa, egg to emergence
+complete_sets <- SetAssessment %>% 
+  filter(curve == "Complete") 
+list_complete <- (unique(complete_sets$set))
+life_stages <- c("egg", "larva", "pupa", "eggtoemergence")
+Ana_dr <- Ana %>% 
+  filter(set %in% list_complete) %>% 
+  filter(lifestage %in% life_stages)
+egg_dr <- Ana_dr %>%
+  filter(lifestage == "egg")
+larva_dr <- Ana_dr %>%
+  filter(lifestage == "larva")
+pupa_dr <- Ana_dr %>%
+  filter(lifestage == "pupa")
+eggtoemergence_dr <- Ana_dr %>%
+  filter(lifestage == "eggtoemergence")
+
+Ana_dr$lifestage <- factor(Ana_dr$lifestage, levels = c("egg", "larva", "pupa", "eggtoemergence"))
+```
+There are `r length(unique(Ana_dr$set))` sets of the relevant lifestages (`r length(unique(Ana_dr$sp))` species). Of those, `r length(unique(egg_dr$set))` correspond to egg (N = `r length(unique(egg_dr$sp))` species), `r length(unique(larva_dr$set))` to larva (N = `r length(unique(larva_dr$sp))` species), `r length(unique(pupa_dr$set))`to pupa (N = `r length(unique(pupa_dr$sp))` species) and `r length(unique(eggtoemergence_dr$set))` to eggtoadult (N = `r length(unique(eggtoemergence_dr$sp))`)
+
+## 3. Consolidation of redundant sets
+Redundant sets occur because researchers varied experimental conditions such as host plant, humidity and day length, or because data were reported for males and females separately. We considered multiple measurements reported in the same publication that were obtained at the same temperature, of the same ontogenetic stage of individuals of the same population (sp and locality) to be redundant, and we obtained the geometric mean of all treatments (host, sex, day length, humidity,etc) at the same temperature for analyses. 
+Consolidated sets kept the number (unique set identifier) of the first set they include.
+
+
+```{r}
+# make a new column that unifies redundant sets
+Ana_dr <- Ana_dr %>% 
+  mutate(redundancy_id = as.numeric(factor(paste(sp, locality, lifestage, id))))
+
+
+# Function to get the geometric mean of development rate (dr_c), and mean (dr2)
+mean_redundant <- function(dat){
+newset <- dat$set [[1]]
+dat %>%
+  select(temp, sp, dr) %>% 
+  group_by(temp) %>% 
+  summarise(dr_c = geometric.mean(dr),
+            dr2 = mean(dr), 
+            newset = newset,
+            n_sets = length(dr),.groups = "drop") 
+}
+
+# Apply function to Ana_dr
+
+Ana_dr_consolidated <- Ana_dr %>% 
+  group_by(redundancy_id) %>% 
+  nest() %>% 
+  mutate(consolidated = map(data, mean_redundant)) %>% 
+  select(redundancy_id, consolidated) %>% 
+  unnest(col = consolidated)# Function
+
+# re-name variables. Note that consolidated sets summarize multiple sets and got assigned the number (set id value) of the first set.
+names(Ana_dr_consolidated) <- c("redundancy_id", "temp", "dr", "dr2", "set", "n_sets")
+```
+
+## 4. Scaling
+Create a function to scale development rate
+```{r}
+scale.dr <- function(table){
+  table <- table[!is.na(table$dr) & !is.na(table$temp),] # Remove treatments with no performance data
+  if(nrow(table) > 1 ){
+  maxdr <- max(table$dr, na.rm = T)
+  table$s_dr <- table$dr/maxdr
+  table
+  }
+}
+
+
+```
+
+
+Apply the function to each set to obtain s_dr
+```{r}
+Ana_dr_consolidated <- Ana_dr_consolidated %>% 
+  group_by(set) %>% 
+  nest() %>% 
+  mutate(s_dr = map(data, scale.dr)) %>% 
+  unnest(cols = s_dr) %>% 
+  select(-data)
+
+# ggplot(Ana_dr_consolidated, aes(x = dr, y = s_dr))+
+#   geom_point()
+```
+
+## 5. Linear interpolation
+Obtain predicted development rate in the range from 0 to 40C using linear interpolation. 
+
+```{r}
+# 1- Make interpolation function:
+interpolate <- function(dat) {
+  out <- seq(from = 0, to = 40, by = 0.1)
+  as.data.frame(approx(x = dat$temp, y = dat$s_dr, xout = out, method = "linear", rule = 1))
+  
+}
+# 2. Apply interpolation function to all sets
+Predicted_Ana_dr <-  Ana_dr_consolidated %>% 
+  group_by(set) %>% 
+  nest() %>% 
+  mutate(predicted = map(data,interpolate)) %>% 
+  select(set, predicted) %>% 
+  unnest(cols = predicted)
+names(Predicted_Ana_dr) <- c("set", "temp", "s_dr")
+```
+
+
+
+## 6. Obtain Dl, Dh, Dbreadth
+```{r}
+
+# Function to obtain Dbreadth, Dl and Dh
+get_interval <- function(dat){
+  dat <- dat[!is.na(dat$s_dr) & !is.na(dat$temp),] # Remove treatments with no s_dr data
+  Dmin <- min(dat$temp)
+  Dmax <- max(dat$temp)
+  y_max <- max(dat$s_dr) # get maximum value for s_dr
+  x_max <- dat[dat$s_dr == y_max, "temp"][[1]][[1]]# get temperature that maximizes s_dr
+  cold <- filter(dat, temp < x_max)  
+  hot <- filter(dat, temp > x_max)  
+  limit <- y_max/2
+  if (min(cold$s_dr) > limit){
+    print("cold incomplete")
+    y_mincold <- NA
+    x_min_cold <- NA
+    grade_cold <- "incomplete"
+  } else{
+    y_mincold <- min(filter(cold, s_dr >= y_max/2)[["s_dr"]])
+    x_min_cold <- min(filter(cold, s_dr >= y_max/2)[["temp"]])
+    grade_cold <- "complete"
+  }
+  
+  if(min(hot$s_dr) > limit){
+    print("heat incomplete")
+    y_minhot <- NA
+    x_min_hot <- NA 
+    grade_hot <- "incomplete"
+  } else {
+    y_minhot <- min(filter(hot, s_dr >= y_max/2)[["s_dr"]])
+    x_min_hot <- max(filter(hot, s_dr >= y_max/2)[["temp"]])
+    grade_hot <- "complete"
+  }
+  
+  
+  output <- tibble(Dl = x_min_cold, 
+                   Dh = x_min_hot, 
+                   Dbreadth = Dh - Dl, 
+                   gradecold = grade_cold, 
+                   gradehot = grade_hot)
+}
+```
+
+
+```{r}
+# Apply get_interval() to each set
+
+Interval <- Predicted_Ana_dr %>% 
+  group_by(set) %>% 
+  nest() %>% 
+  mutate(interval = map(data,get_interval)) %>% 
+  select(set, interval) %>% 
+  unnest(cols = interval)
+
+add_info <- Ana_dr %>% 
+  select(set, sp, family, lifestage, lat, lon, locality, quality) %>% 
+  distinct()
+Interval_table1 <- inner_join(Interval, add_info, by = "set")
+Interval_table1$lifestage <- factor(Interval_table1$lifestage, levels = c("egg", "larva", "pupa", "eggtoemergence"))
+
+head(Interval_table1)
+```
+
+Print table for analysis
+
+```{r}
+# write_csv(Interval_table1,"~/Desktop/Projects/ThermalTManuscriptScripts/DevelopmentTable.csv")
+```
+
+
+
+
+
