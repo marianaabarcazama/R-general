@@ -1,0 +1,445 @@
+---
+title: "Analyze Performance limits"
+output:
+  html_document:
+    df_print: paged
+---
+## Contents
+1. Import data and housekeeping
+
+2. Pl
+2.1  Model selection
+2.2  Implement phylogenetic correction
+
+3. Ph
+3.1  Model selection
+3.2  Phylogenetic correction
+
+4. Pbreadth
+4.1  Model selection
+4.2  Implement phylogenetic correction
+
+
+# 1. Import data and housekeeping
+```{r}
+ 
+#library(INLA) 
+# install.packages("INLA", repos=c(getOption("repos"), INLA="https://inla.r-inla-download.org/R/stable"), dep=TRUE)
+library(tidyverse)
+library(readxl)
+library(cowplot)
+library(psych) # to get geometric mean
+library(lme4)
+library(car)
+library("dotwhisker")  # to make coefficient plots
+library(sjPlot) #prediction plots
+library(sjmisc)
+library(broom)
+library(effects)
+library(ggeffects)
+library(Hmisc)
+library(phyr)
+library(ape)
+library(nlme)
+library(stringr)
+library(phylotools)
+library(phytools)
+library(rr2)
+# sessionInfo()
+```
+
+
+```{r}
+responses <- read_csv("~/Desktop/Projects/ThermalTManuscriptScripts/PerformanceTable.csv")
+tree <- read.tree("~/Desktop/Projects/ThermalStressCompilation/GTRG_Unpartitioned_constrain.raxml.bestTree.tre")
+unique(responses$lifestage)
+```
+
+We discarded "eggtoemergence" category in the subsequent analyses because it is a combination of the other three. We also discarded data from sets that were a combination of localities "combination".
+
+```{r}
+# convert character to factor
+responses <- responses %>%
+  mutate_if(is.character, factor)
+# discard non-pertinent data
+
+responses_table <- responses %>% 
+  filter(lifestage == "egg"| lifestage == "larva"| lifestage == "pupa", 
+         #quality!= "inferred", 
+         quality != "combination") %>% 
+  mutate(absLat = abs(lat)) 
+responses_table$lifestage <- factor(responses_table$lifestage)
+responses_table$sp <- factor(responses_table$sp)
+
+# Select variables to include in analyses
+P.set <- select(responses_table, set,  Pl, Ph, Pbreadth,lifestage, absLat, sp, family, quality)
+P.set$genus <- word(P.set$sp, 1)
+P.set$species <- word(P.set$sp, 2)
+#filter(responses, set == 1005)
+# save a list of sets included in analyses
+P.sets <- P.set %>% 
+  select(set)
+# write_csv(P.sets,"/Users/marianaabarcazama/Desktop/Projects/ThermalPerformance/sets_development.csv")
+
+```
+There were `length(unique(P.set$sp))`species
+There were `length(unique(P.set$set))`sets
+There were `nrow(filter(P.set, quality == "inferred")["quality"])/length(unique(P.set$set))`species
+41/173
+# 2. Pl
+Pl ranged from `r min(P.set$Pl, na.rm = T)` to `r max(P.set$Pl, na.rm = T)`, mean =  `r mean(P.set$Pl, na.rm = T)`, SD = `r sd(P.set$Pl, na.rm = T)`
+Latitude ranged from `r min(P.set$absLat, na.rm = T)` to `r max(P.set$absLat, na.rm = T)`
+
+## 2.1 Model selection
+
+```{r}
+DataLow <- filter(P.set, !is.na(Pl))
+Pl_i <- lmer(Pl ~ -1 + lifestage + absLat + lifestage:absLat + (1|sp), data = as.data.frame(DataLow)) #
+Pl_a <- lmer(Pl ~ -1 + absLat + lifestage + (1|sp), data = as.data.frame(DataLow)) #
+
+anova(Pl_i, Pl_a, test.statistic = "Chisq") 
+```
+
+```{r}
+Pl_a_ML <- lmer(Pl ~ -1 + absLat + lifestage +  (1|sp), REML = F, data = as.data.frame(DataLow)) #
+summary(Pl_a_ML)
+
+```
+
+
+```{r}
+# Predictions plot
+DataLow$group <- factor(DataLow$lifestage)
+prePlow <- ggpredict(Pl_i, terms = c("absLat","lifestage"))
+# write_csv(prePlow,"~/Desktop/Projects/ThermalTManuscriptScripts/prePlow.csv")
+
+Plow_plot <- ggplot(prePlow, aes(x = x, y = predicted, colour = group, fill = group)) +
+  geom_line()+
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high, col = group), alpha = 0.1)+
+  scale_fill_viridis_d(option = "plasma", begin = 0, end = 0.8)+
+  scale_color_viridis_d(option = "plasma", begin = 0, end = 0.8)+
+  ylab(expression(P[l]))+
+  xlab("Absolute latitude")+
+  ylim(0, 40)+
+  annotate("text", x = 0, y = 40, label = "G", size = 5)+
+  geom_point(data = DataLow, mapping = aes(x = absLat, y = Pl, col = group), alpha = 0.6, shape = 16)+
+  #geom_point(data = P.set, mapping = aes(x = absLat, y = Dmin, col = group), alpha = 1, shape = 22)+
+  theme_cowplot()+
+  theme(legend.title = element_blank(), legend.position = "none")
+
+Plow_plot
+```
+ 
+## 2.2 Phylogenetic correction
+
+hange species' names of the following species to reflect substitutions due to lack of data and to correct mispellings
+
+Substitutions:
+ In tree                  In dataset    
+Ephestia columbiella for     Ephestia calidella #### Not in analyses because source population was "inferred"
+Episimus tyrius for          Episimus utilis 
+Euzopherodes allocrossa for Euzopherodes vapidella ### No development rate data available
+Marmara arbutiella for      Marmara gulosa
+Protodeltote albidula for   Naranga aenescens
+
+
+
+Mispellings: 
+Hyphantria cunea instead of   Hypantria cunea
+Ameyelois transitella instead of Amyelois transitella,
+```{r}
+DataLow$original_species <- DataLow$sp
+DataLow$sp <- ifelse(DataLow$original_species == "Episimus utilis", "Episimus tyrius", ifelse(DataLow$original_species == "Marmara gulosa", "Marmara arbutiella", ifelse(DataLow$original_species == "Naranga aenescens", "Protodeltote albidula", ifelse(DataLow$original_species == "Hypantria cunea", "Hyphantria cunea",  ifelse(DataLow$original_species == "Ameyelois transitella", "Amyelois transitella", ifelse(DataLow$original_species == "Utethesia ornatrix", "Utetheisa ornatrix", ifelse(DataLow$original_species == "Euzopherodes vapidella", "Euzopherodes allocrossa", ifelse(DataLow$original_species == "Ephestia calidella", "Ephestia columbiella", as.character(DataLow$original_species)))))))))
+
+#Species list in the data set
+## as tibble so it can be used with setdiff()
+Pspecies <- tibble(sp = unique(DataLow$sp))
+## as a vector so it can be manipulated with 
+V_species <- unique(DataLow$sp)
+
+tree_species <-  tibble(sp = as.character(paste(word(tree$tip.label, sep = "_", 4), word(tree$tip.label, sep = "_", 5))))
+
+# setdiff(Pspecies, tree_species)
+
+# all species in DataLow are in the tree. 
+
+# setdiff(tree_species, Pspecies) # the tree has 71 species more than P.set
+```
+
+Trim the tree so it only includes the species in the P.set. First the tips have to be relabeled so they include only the species names
+```{r}
+rename <- as.data.frame(tibble(oldname = tree$tip.label, 
+                 newname = tree_species$sp))
+tree_relabel <- sub.taxa.label(tree, rename)
+Pl.tree <- keep.tip(tree_relabel, V_species)
+plotTree(Pl.tree)
+```
+
+```{r}
+Plow_phylo <- pglmm(Pl ~ -1 + lifestage + absLat + (1|sp__), tree = tree, bayes= F, data = DataLow, cov_ranef = list(sp = Pl.tree), REML = F)
+
+Plow_nophylo <- pglmm(Pl ~ -1 + lifestage + absLat + (1|sp), tree = tree, bayes= F, data = DataLow, cov_ranef = list(sp = Pl.tree), REML = F)
+
+```
+
+
+```{r}
+summary(Plow_phylo)
+```
+
+```{r}
+summary(Plow_phylo)
+```
+
+
+Asses the effect of phylogeny on Plow
+```{r}
+
+#R2(Plow_phylo, Plow_nophylo) # if this does not work unload and reload rr2
+R2.lik(Plow_phylo, Plow_nophylo) # if this does not work unload and reload rr2
+
+
+```
+
+#3. Phigh 
+Phigh ranged from `r min(P.set$Ph, na.rm = T)` to `r max(P.set$Ph, na.rm = T)`, mean =  `r mean(P.set$Ph, na.rm = T)`, SD = `r sd(P.set$Ph, na.rm = T)`
+Latitude ranged from `r min(P.set$absLat, na.rm = T)` to `r max(P.set$absLat, na.rm = T)`
+
+```{r}
+
+DataHigh <- filter(P.set, !is.na(Ph))
+
+```
+
+
+## 3.1 Model selection
+
+```{r}
+Ph_i <- lmer(Ph ~ -1 + lifestage + absLat + lifestage:absLat + (1|sp), data = as.data.frame(DataHigh)) #
+Ph_a <- lmer(Ph ~ -1 + absLat + lifestage + (1|sp), data = as.data.frame(DataHigh)) #
+
+anova(Ph_i, Ph_a, test.statistic = "Chisq")
+```
+
+```{r}
+Ph_a_ML <- lmer(Ph ~ -1 + absLat + lifestage + (1|sp), REML = F, data = as.data.frame(DataHigh)) #
+summary(Ph_a_ML)
+```
+
+```{r}
+# Predictions plot
+
+DataHigh$group <- factor(DataHigh$lifestage)
+prepu <- ggpredict(Ph_i, terms = c("absLat","lifestage"))
+
+#write_csv(prepu,"~/Desktop/Projects/ThermalTManuscriptScripts/prepu.csv")
+Pupper_plot <- ggplot(prepu, aes(x = x, y = predicted, colour = group, fill = group)) +
+  geom_line()+
+   geom_ribbon(aes(ymin = conf.low, ymax = conf.high, col = group), alpha = 0.1)+
+  scale_fill_viridis_d(option = "plasma", begin = 0, end = 0.8)+
+  scale_color_viridis_d(option = "plasma", begin = 0, end = 0.8)+
+  ylab(expression(D[h]))+
+  xlab("Absolute latitude")+
+  ylim(10, 50)+
+  #annotate("text", x = 0, y = 40, label = "X", size = 5)+
+  geom_point(data = DataHigh, mapping = aes(x = absLat, y = Ph, col = group), alpha = 0.6, shape = 1)+
+  #geom_point(data = P.set, mapping = aes(x = absLat, y = Dmax, col = group), alpha = 0.6, shape = 22)+
+  theme_cowplot()+
+  theme(legend.title = element_blank(), legend.position = "none")
+
+Pupper_plot
+```
+
+## 3.2 Phylogenetic correction
+
+### 3.2.1 Adjust data table 
+Change species' names of the following species to reflect substitutions due to lack of data and to correct misspellings
+Substitutions:
+ In tree                  In dataset    
+Ephestia columbiella for     Ephestia calidella #### Not in analyses because source population was "inferred"
+Episimus tyrius for          Episimus utilis 
+Euzopherodes allocrossa for Euzopherodes vapidella ### No development rate data available
+Marmara arbutiella for      Marmara gulosa
+Protodeltote albidula for   Naranga aenescens
+
+Mispellings: 
+Hyphantria cunea instead of   Hypantria cunea
+Ameyelois transitella instead of Amyelois transitella,
+
+
+
+```{r}
+DataHigh$original_species <- DataHigh$sp
+DataHigh$sp <- ifelse(DataHigh$original_species == "Episimus utilis", "Episimus tyrius", ifelse(DataHigh$original_species == "Marmara gulosa", "Marmara arbutiella", ifelse(DataHigh$original_species == "Naranga aenescens", "Protodeltote albidula", ifelse(DataHigh$original_species == "Hypantria cunea", "Hyphantria cunea",  ifelse(DataHigh$original_species == "Ameyelois transitella", "Amyelois transitella", ifelse(DataHigh$original_species == "Utethesia ornatrix", "Utetheisa ornatrix", ifelse(DataHigh$original_species == "Ephestia calidella","Ephestia columbiella", as.character(DataHigh$original_species))))))))
+
+Dspecies <- tibble(sp = unique(DataHigh$sp))
+V_species <- unique(DataHigh$sp)
+tree_species <-  tibble(sp = as.character(paste(word(tree$tip.label, sep = "_", 4), word(tree$tip.label, sep = "_", 5))))
+
+#setdiff(Dspecies, tree_species)
+# all species in DataHigh are in the tree. 
+
+#setdiff(tree_species, Dspecies) # the tree has 45 species more than DataHigh
+```
+
+
+Trim the tree so it only includes the species in DataHigh. First the tips have to be relabeled so they include only the species names
+```{r}
+rename <- as.data.frame(tibble(oldname = tree$tip.label, 
+                 newname = tree_species$sp))
+tree_relabel <- sub.taxa.label(tree, rename)
+Ph.tree <- keep.tip(tree_relabel, V_species)
+plotTree(Ph.tree)
+```
+
+
+
+
+
+```{r}
+Phigh_phylo <- pglmm(Ph ~ -1 + lifestage + absLat + (1|sp__), tree = tree, bayes= F, data = DataHigh, cov_ranef = list(sp = Ph.tree), REML = F)
+
+Phigh_nophylo <- pglmm(Ph ~ -1 + lifestage + absLat + (1|sp), tree = tree, bayes= F, data = DataHigh, cov_ranef = list(sp = Ph.tree), REML = F)
+
+```
+
+
+```{r}
+Phigh_phylo
+```
+```{r}
+Phigh_phylo
+```
+
+
+
+Asses the effect of phylogeny
+```{r}
+R2.lik(Phigh_phylo, Phigh_nophylo) # if this does not work unload and reload rr2
+```
+
+
+
+
+# 4. Pbreadth
+Pbreadth ranged from `r min(P.set$Pbreadth, na.rm = T)` to `r max(P.set$Pbreadth, na.rm = T)`, mean =  `r mean(P.set$Pbreadth, na.rm = T)`, SD = `r sd(P.set$Pbreadth, na.rm = T)`
+Latitude ranged from `r min(P.set$absLat, na.rm = T)` to `r max(P.set$absLat, na.rm = T)`
+
+## 3.1 Model selection
+
+```{r}
+DataB <- filter(P.set, !is.na(Pbreadth))
+Pbreadth_i <- lmer(Pbreadth ~ -1 + lifestage + absLat + lifestage:absLat + (1|sp), data = as.data.frame(DataB)) #
+Pbreadth_a <- lmer(Pbreadth ~ -1 + absLat + lifestage + (1|sp), data = as.data.frame(DataB)) #
+
+anova(Pbreadth_i, Pbreadth_a, test.statistic = "Chisq") 
+```
+
+```{r}
+Pbreadth_a_ML <- lmer(Pbreadth ~ -1 + absLat + lifestage + (1|sp), REML = F, data = as.data.frame(DataB)) #
+summary(Pbreadth_a_ML)
+```
+
+
+```{r}
+# Predictions plot
+DataB$group <- factor(DataB$lifestage)
+prepw <- ggpredict(Pbreadth_i, terms = c("absLat","lifestage"))
+#write_csv(prepw,"~/Desktop/Projects/ThermalTManuscriptScripts/prepw.csv")
+
+Pbreadth_plot <- ggplot(prepw, aes(x = x, y = predicted, colour = group, fill = group)) +
+  geom_line()+
+   geom_ribbon(aes(ymin = conf.low, ymax = conf.high, col = group), alpha = 0.1)+
+  scale_fill_viridis_d(option = "plasma", begin = 0, end = 0.8)+
+  scale_color_viridis_d(option = "plasma", begin = 0, end = 0.8)+
+  scale_shape_manual(values = c(1,16,8))+
+  ylab(expression(P[breadth]))+
+  xlab("Absolute latitude")+
+  ylim(0, 40)+
+  annotate("text", x = 0, y = 40, label = "X", size = 5)+
+  geom_point(data = DataB, mapping = aes(x = absLat, y = Pbreadth, col = group), alpha = 0.6, shape = 0)+
+  theme_cowplot()+
+  theme(legend.title = element_blank(), legend.position = "none")
+
+Pbreadth_plot
+```
+
+## 4.2 Phylogenetic correction
+
+
+Change species' names of the following species to reflect substitutions due to lack of data and to correct misspellings
+Substitutions:
+ In tree                  In dataset    
+Ephestia columbiella for     Ephestia calidella #### Not in analyses because source population was "inferred"
+Episimus tyrius for          Episimus utilis 
+Euzopherodes allocrossa for Euzopherodes vapidella ### No development rate data available
+Marmara arbutiella for      Marmara gulosa
+Protodeltote albidula for   Naranga aenescens
+
+Mispellings: 
+Hyphantria cunea instead of   Hypantria cunea
+Ameyelois transitella instead of Amyelois transitella,
+
+
+
+```{r}
+DataB$original_species <- DataB$sp
+DataB$sp <- ifelse(DataB$original_species == "Episimus utilis", "Episimus tyrius", ifelse(DataB$original_species == "Marmara gulosa", "Marmara arbutiella", ifelse(DataB$original_species == "Naranga aenescens", "Protodeltote albidula", ifelse(DataB$original_species == "Hypantria cunea", "Hyphantria cunea",  ifelse(DataB$original_species == "Ameyelois transitella", "Amyelois transitella", ifelse(DataB$original_species == "Utethesia ornatrix", "Utetheisa ornatrix", ifelse(DataB$original_species == "Ephestia calidella","Ephestia columbiella", as.character(DataB$original_species))))))))
+
+Dspecies <- tibble(sp = unique(DataB$sp))
+V_species <- unique(DataB$sp)
+tree_species <-  tibble(sp = as.character(paste(word(tree$tip.label, sep = "_", 4), word(tree$tip.label, sep = "_", 5))))
+
+#setdiff(Dspecies, tree_species)
+# all species in DataB are in the tree. 
+
+#setdiff(tree_species, Dspecies) # the tree has 45 species more than DataB
+```
+
+
+Trim the tree so it only includes the species in DataHigh. First the tips have to be relabeled so they include only the species names
+```{r}
+rename <- as.data.frame(tibble(oldname = tree$tip.label, 
+                 newname = tree_species$sp))
+tree_relabel <- sub.taxa.label(tree, rename)
+Pb.tree <- keep.tip(tree_relabel, V_species)
+plotTree(Pb.tree)
+```
+
+
+
+
+
+
+Fit model
+```{r}
+
+Pbreadth_phylo <- pglmm(Pbreadth ~ -1 + lifestage + absLat + (1|sp__), tree = tree, bayes= F, data = DataB, cov_ranef = list(sp = Pb.tree), REML = F)
+
+Pbreadth_nophylo <- pglmm(Pbreadth ~ -1 + lifestage + absLat + (1|sp), tree = tree, bayes= F, data = DataB, cov_ranef = list(sp = Pb.tree), REML = F)
+
+```
+
+
+```{r}
+Pbreadth_phylo
+```
+
+
+
+
+```{r}
+Pbreadth_phylo
+```
+
+
+Asses the effect of phylogeny
+```{r}
+ R2.lik(Pbreadth_phylo,Pbreadth_nophylo) # if this does not work unload and reload rr2
+
+```
+
+
+
+
+
