@@ -1,0 +1,556 @@
+---
+title: "Hypotheses plots"
+output: html_notebook
+---
+
+
+
+```{r}
+#remotes::install_github("padpadpadpad/rTPC")
+library(rTPC)
+library(nls.multstart)
+```
+
+
+
+```{r, message= FALSE, warning=FALSE}
+# load packages
+library(tidyverse)
+library(readxl)
+library(tidyverse)
+library(readxl)
+library(cowplot)
+library(psych) # to get geometric mean
+library(lme4)
+library(car)
+library("dotwhisker")  # to make coefficient plots
+library(sjPlot) #prediction plots
+library(sjmisc)
+library(broom)
+library(devRate)
+
+```
+
+
+# Version IV
+
+```{r}
+# Import Toy data (based on set 944)
+
+ToyData <- read_xlsx("~/Desktop/Projects/ThermalStressCompilation/Toydata.xlsx", 
+                  sheet = "toy2", na = c("NA", ""))
+d <- ToyData %>% 
+  select(temp, dr5) %>% 
+  filter( ! is.na(dr5))
+mod = "lactin2_1995"
+# get start values
+start_vals <- get_start_vals(d$temp, d$dr5, model_name = "lactin2_1995")
+# get limits
+low_lims <- get_lower_lims(d$temp, d$dr5, model_name = "lactin2_1995")
+upper_lims <- get_upper_lims(d$temp, d$dr5, model_name = "lactin2_1995")
+
+
+
+fit <- nls_multstart(dr5~lactin2_1995(temp = temp, a,b,tmax,delta_t),
+                                                     data = d,
+                                                     iter = 500,
+                                                     start_lower = start_vals - 10,
+                                                     start_upper = start_vals + 10,
+                                                     lower = low_lims,
+                                                     upper = upper_lims,
+                                                     supp_errors = 'Y', 
+                     convergence_count = FALSE)
+fit
+
+
+```
+
+```{r}
+
+# predict new data
+new_data <- data.frame(temp = seq(min(d$temp), max(d$temp), 0.5))
+preds <- augment(fit, newdata = new_data)
+# plot data and model fit
+ggplot(new_data, aes(temp, .fitted)) +
+  geom_line(aes(temp, .fitted), preds, col = 'grey40', size = 2) +
+  theme_cowplot()+
+  ylab("Development rate")+
+  xlab("Temperature")+
+  ylim(0, 1.1)+
+  xlim(2, 40)+
+  geom_segment(x = 10, y = 0, xend = 27.4, yend = 1.1, size = 2, linetype = 2)+
+   
+  #annotate("text", x = 9, y = -0.08, label = expression("T"[0]))+
+  theme(axis.text = element_text(size = 16))+
+  #theme(axis.text.x= c("Tmin", "T0", "Topt", "Tmax"))+
+  scale_x_continuous(breaks = c(7, 10, 27, 32), labels = c(expression("T"[min]), expression("T"[0]), expression("T"[opt]), expression("T"[max])))+
+   
+  theme(axis.ticks.x = element_blank(), axis.title.y = element_text(colour = "grey40"), axis.title.y.left = element_text(colour = "black"))+
+  #scale_y_continuous(name = "Development rate", sec.axis = sec_axis(~ .*1, name = "Survival"),breaks = c(0, 0.5, 1))
+  scale_y_continuous(breaks = c(0, 1))
+```
+
+
+
+
+
+
+
+
+Old Figure 1
+
+```{r}
+ToyData$p1 <- ToyData$dr2 *(ToyData$shigher/100)
+ToyData$p2 <- ToyData$dr2 *(ToyData$highequal/100)
+Figure_1 <- ggplot(ToyData, aes(x = temp, y = p1))+
+  
+ # performance
+  # geom_line(size = 2, col = "#90548bff", alpha = 1)+ # performance, orange:"#E55C30FF", green: "#5DC863FF"
+  # geom_segment(x = 17.5, y = -0.08, xend = 31.3, yend = -0.08, linetype = 1, col =  "#90548bff", size = 2, alpha = 1)+
+  # annotate("rect", xmin = 17.5, xmax = 31.3, ymin = 0, ymax = 1, fill =  "#90548bff", alpha = 0.3)+
+  # annotate("text", x = 16, y = -0.08, label = expression("P"[low]))+
+  # annotate("text", x = 33, y = -0.08, label = expression("P"[high]))+
+  # 
+  # development
+  #geom_line(data = ToyData, mapping = aes(x = temp, y = dr5), size = 2, col = "darkgrey", linetype = 1)+
+  geom_smooth(data = ToyData, mapping = aes(x = temp, y = dr5), se = F, size = 2, col = "darkgrey", linetype = 1)+
+  #geom_segment(x = 17.5, y = 0.51, xend = 31.3, yend = 0.51, linetype = 3)+
+  #geom_segment(x = 17.5, y = -0.16, xend = 31.3, yend = -0.16, linetype = 3)+
+  #annotate("text", x = 16, y = -0.16, label = expression("D"[low]))+
+  #annotate("text", x = 33, y = -0.16, label = expression("D"[high]))+
+ 
+  # # survival
+  #  geom_line(data = ToyData, mapping = aes(x = temp, y = shigher/100), size = 1, linetype = 1, col = "grey40")+ # survival
+  #  geom_segment(x = 9.1, y = 0.49, xend = 34.8, yend = 0.49, linetype = 1, col = "grey40")+
+  # geom_segment(x = 9.1, y = -0.24, xend = 34.8, yend = -0.24, linetype = 1, col = "grey40")+
+  # annotate("text", x = 8, y = -0.24, label = expression("S"[low]))+
+  # annotate("text", x = 36, y = -0.24, label = expression("S"[high]))+
+  #geom_segment(x = 9.5, y = 0.49, xend = 39, yend = 0.49, linetype = 2)+
+  theme_cowplot()+
+  #annotate("text", x =5, y = 1, label = "A")+
+  ylab("Development rate")+
+  xlab("Temperature")+
+ 
+ 
+  
+  # annotate("text", x = 12, y = -0.08, label = "chill stress")+
+  # annotate("text", x = 39.5, y = -0.08, label = "heat stress")+
+  # annotate("text", x = 28, y = -0.08, label = "optimal range")+
+  
+  # T0
+  geom_segment(x = 9, y = 0.0, xend = 26, yend = 1)+
+  #annotate("text", x = 9, y = -0.08, label = expression("T"[0]))+
+  theme(axis.text = element_text(size = 16))+
+  #theme(axis.text.x= c("Tmin", "T0", "Topt", "Tmax"))+
+  scale_x_continuous(breaks = c(5, 9, 26, 32), labels = c(expression("T"[min]), expression("T"[0]), expression("T"[opt]), expression("T"[max])))+
+  #scale_x_continuous(breaks = c(9.5, 20.5, 39.5), labels = c("chill stress", "optimal range", "heat stress"))
+   
+  # theme(axis.ticks.x = element_blank(), axis.title.y = element_text(colour = "grey40"), axis.title.y.left = element_text(colour = "black"))+
+  #scale_y_continuous(name = "Development rate", sec.axis = sec_axis(~ .*1, name = "Survival"),breaks = c(0, 0.5, 1))
+  scale_y_continuous(breaks = c(0, 0.5, 1))
+ 
+#theme(axis.title.x = element_text(colour = "red"))
+
+```
+
+
+When the interval of temperatures that allow for 50% survival is larger on both the cold and the hot side than the interval that allows for development at 50% efficiency, performance is entirely limited by development rate.
+
+```{r}
+
+Figure_1
+
+```
+
+
+Row 1
+
+```{r}
+ToyData$p1 <- ToyData$dr2 *(ToyData$shigher/100)
+ToyData$p2 <- ToyData$dr2 *(ToyData$highequal/100)
+ToyData$p3 <- ToyData$dr3 *(ToyData$slower/100)
+ToyData$p4 <- ToyData$dr4 *(ToyData$slower/100)
+ToyData$p5 <- ToyData$dr5 *(ToyData$slower/100)
+A1 <- ggplot(ToyData, aes(x = temp, y = p1))+
+  # performance
+  geom_line(data = ToyData, mapping = aes(x = temp, y = p1), size = 2, col = "#90548bff", alpha = 1)+ # performance, orange:"#E55C30FF", green: "#5DC863FF"
+  #geom_segment(x = 17.5, y = 0.5, xend = 31.3, yend = 0.5, linetype = 1, col =  "#90548bff", size = 2, alpha = 1)+
+  annotate("rect", xmin = 17.5, xmax = 31.3, ymin = -Inf, ymax = 1, fill =  "#90548bff", alpha = 0.3)+
+  
+  # survival
+   geom_line(data = ToyData, mapping = aes(x = temp, y = shigher/100), size = 1, linetype = 1, col = "grey40")+ # survival
+   geom_segment(x = 9.1, y = 0.49, xend = 34.8, yend = 0.49, linetype = 1, col = "grey40")+
+  
+  # development
+  geom_line(data = ToyData, mapping = aes(x = temp, y = dr2), size = 2, col = "black", linetype = 3)+ #development rate
+  geom_segment(x = 17.5, y = 0.51, xend = 31.3, yend = 0.51, linetype = 3)+
+  
+  
+  # Points
+  geom_point(x = 9.1, y = 0.5, size = 4, shape = 19, col = "blue")+
+  geom_point(x = 34.8, y = 0.5, size = 4, shape = 15, col = "orange")+
+  geom_point(x = 17.5, y = 0.5, size = 6, shape = 1, col = "blue", alpha = 0.5)+
+  geom_point(x = 31.3, y = 0.5, size = 6, shape = 0, col = "orange", alpha = 0.5)+
+ 
+  
+  ylab("Rate")+
+  xlab("")+
+ 
+  annotate("text", x = 17.5, y = 0.01, label = expression("P"[l]), size = 5) +
+  annotate("text", x = 31.3, y = 0.01, label = expression("P"[h]), size = 5) +
+  
+   scale_x_continuous(breaks = c(9.1, 17.5,  31.3, 34.8), labels = c(expression("S"[l]), expression("D"[l]), expression("D"[h]), expression("S"[h])))+
+   theme(axis.title.y = element_text(colour = "black"), axis.title.y.left = element_text(colour = "black"))+
+  scale_y_continuous(name = "Rate",
+         #sec.axis = sec_axis(~ .*1, name = "Survival",breaks = c(0, 0.5, 1)),
+                     breaks = c(0, 0.5, 1))+
+  theme_cowplot()
+ 
+
+A1
+```
+
+
+A2
+```{r}
+A1data <- tibble(survival = c(34.8,9.1),
+                 Limit = factor(c("high", "low")),
+                 development = c(31.3, 17.5)
+                 )
+A2 <- ggplot(A1data, aes(x = survival, y = development, shape = Limit, col = Limit))+
+  geom_point(size = 5, alpha = 0.5)+
+  geom_point(size = 3)+
+  scale_shape_manual(values = c(15,16))+
+  scale_color_manual(values = c("orange", "blue"))+
+  ylim(0,40)+
+  xlim(0,40)+
+  ylab("D limits (°C)")+
+  xlab("")+
+  geom_segment(x = 0, xend = 40, y = 0, yend = 40, col = "black", linetype = 2, size =0.5, alpha = 0.1)+
+  theme_cowplot()+
+  #theme(legend.position = c(0.6,0.4))
+  theme(legend.position = "none")
+A2
+```
+
+
+When development limits (Dlow and Dhigh) are equal to survival limits (Slow and Shigh), performance interval is reduced, with Plow being higher than Dlow and Slow; and Phigh smaller than Dhigh and Shigh
+
+Second row
+```{r}
+label1 <- expression("D"[low])
+label2 <- expression("S"[low])
+B1 <- ggplot(ToyData, aes(x = temp, y = p4))+
+ 
+  # performance
+  geom_line(size = 2, col = "#90548bff")+ # performance
+  #geom_segment(x = 23.7, y = 0.5, xend = 32.8, yend = 0.5, linetype = 1, col = "#90548bff", size = 2)+
+ # annotate("text", x = 24, y = 0.5, label = expression("P"[low]))+
+  #annotate("text", x = 33, y = 0.5, label = expression("P"[high]))+
+  annotate("rect", xmin = 23.7, xmax = 32.8, ymin = -Inf, ymax = 1, fill = "#90548bff", alpha = 0.3)+
+  
+  
+  # survival
+  geom_line(data = ToyData, mapping = aes(x = temp, y = lowequal/100), size = 1, linetype = 1, col = "grey40")+ # survival
+
+  # development
+  geom_line(data = ToyData, mapping = aes(x = temp, y = dr3), size = 2, col = "black", linetype = 3)+ #development rate
+  #geom_segment(x = 20.5, y = 0.51, xend = 34.2, yend = 0.51, linetype = 3)+
+  #geom_segment(x = 20.5, y = -0.16, xend = 34.2, yend = -0.16, linetype = 3)+
+  #annotate("text", x = 19., y = -0.05, label = expression("D"[low]))+
+  #annotate("text", x = 35.5, y = -0.05, label = expression("D"[high]))+
+  
+  
+  geom_segment(x = 20.5, y = 0.51, xend = 34.2, yend = 0.51, linetype = 3, col = "black")+
+  geom_segment(x = 20.5, y = 0.49, xend = 34.2, yend = 0.49, linetype = 1, col = "grey40")+
+ # geom_segment(x = 20.5, y = 0, xend = 34.2, yend = 0, linetype = 1, col = "grey40")+
+  annotate("text", x = 20.5, y = 0, label = expression("S"[l]), size = 4)+
+  annotate("text", x = 34.2, y = 0, label = expression("S"[h]), size = 4)+
+  
+  annotate("text", x = 23.7, y = 0.1, label = expression("P"[l]), size = 5) +
+  annotate("text", x = 32.8, y = 0.1, label = expression("P"[h]), size = 5) +
+  #geom_segment(x = 9.5, y = 0.49, xend = 39, yend = 0.49, linetype = 2)+
+  theme_cowplot()+
+  #annotate("text", x =5, y = 1, label = "B")+
+  
+   geom_point(x = 20.5, y = 0.5, size = 6, shape = 1, col = "blue")+
+   geom_point(x = 34.2, y = 0.5, size = 6, shape = 0, col = "orange")+
+   geom_point(x = 20.5, y = 0.5, size = 4, shape = 19, col = "blue")+
+   geom_point(x = 34.2, y = 0.5, size = 4, shape = 15, col = "orange")+
+  
+  #ylab("D limits (°C)")+
+  xlab("")+
+  scale_y_continuous(name = "Rate", 
+                     #sec.axis = sec_axis(~ .*1, name = "Survival",breaks = c(0, 0.5, 1)),
+                     breaks = c(0, 0.5, 1))+
+  scale_x_continuous(breaks = c(20.5, 34.2), labels = c(expression("D"[l]), expression("D"[h])))
+  #theme(axis.ticks.x = element_blank(),axis.ticks.y.left = element_blank(), axis.title.y.left = element_blank(), axis.title.y.right = element_text(colour = "black"),axis.text.y.left = element_blank() , axis.line.y.left = element_blank())
+# scale_x_continuous(breaks = c(9.5, 27, 39.5), labels = c("chill stress", "optimal range", "heat stress"))+
+  # theme(axis.ticks.x = element_blank())
+B1
+```
+
+
+
+```{r}
+B1data <- tibble(survival = c(34.5,20.5),
+                 Limit = factor(c("high", "low")),
+                 development = c(34.5, 20.5)
+                 )
+B2 <- ggplot(B1data, aes(x = survival, y = development, shape = Limit, col = Limit))+
+  geom_point(size = 5, alpha = 0.5)+
+  geom_point(size = 3)+
+  scale_shape_manual(values = c(15,16))+
+  scale_color_manual(values = c("orange", "blue"))+
+  ylim(0,40)+
+  xlim(0,40)+
+  ylab("D limits (°C)")+
+  xlab("")+
+  geom_segment(x = 0, xend = 40, y = 0, yend = 40, col = "black", linetype = 2, size =0.5, alpha = 0.1)+
+  theme_cowplot()+
+  theme(legend.position = "none")
+B2
+```
+
+3A
+```{r}
+
+C1 <- ggplot(ToyData, aes(x = temp, y = p3))+
+ 
+  
+  
+  # performance
+  geom_line(size = 2, col = "#90548bff")+ # performance
+  #geom_segment(x = 20.5, y = 0.5, xend = 31.8, yend = 0.5, linetype = 1, col = "#90548bff", size = 2)+
+  annotate("rect", xmin = 20.5, xmax = 31.8, ymin = -Inf, ymax = 1, fill = "#90548bff", alpha = 0.3)+
+  annotate("text", x = 20.5, y = 0.01, label = expression("P"[l]), size = 5)+
+  annotate("text", x = 31.8, y = 0.01, label = expression("P"[h]), size = 5)+
+  
+  # survival
+  geom_line(data = ToyData, mapping = aes(x = temp, y = slower/100), size = 1, linetype = 1, col = "grey40")+ # survival
+  geom_segment(x = 9.1, y = 0.49, xend = 32.3, yend = 0.49, linetype = 1, col = "grey40")+
+  #geom_segment(x = 9.1, y = -0.24, xend = 32.3, yend = -0.24, linetype = 1, col = "grey40")+
+  #annotate("text", x = 8.5, y = -0, label = expression("S"[low]))+
+  #annotate("text", x = 33.8, y = -0, label = expression("S"[high]))+
+  #geom_segment(x = 9.5, y = 0.49, xend = 39, yend = 0.49, linetype = 2)+
+  
+  
+  # development
+  geom_line(data = ToyData, mapping = aes(x = temp, y = dr3), size = 2, col = "black", linetype = 3)+ 
+  
+  #development rate
+  geom_segment(x = 20.5, y = 0.51, xend = 34.2, yend = 0.51, linetype = 3)+
+  #geom_segment(x = 20.5, y = -0.16, xend = 34.2, yend = -0.16, linetype = 3)+
+  #annotate("text", x = 19.5, y = 0, label = expression("D"[low]))+
+  #annotate("text", x = 36, y = 0, label = expression("D"[high]))+
+ 
+  
+  
+  
+  theme_cowplot()+
+  #annotate("text", x =5, y = 1, label = "C")+
+  ylab("Development rate")+
+  xlab("")+
+  geom_point(x = 20.5, y = 0.5, size = 6, shape = 1, col = "blue")+
+   geom_point(x = 34.2, y = 0.5, size = 6, shape = 0, col = "orange")+
+   geom_point(x = 9.1, y = 0.5, size = 4, shape = 19, col = "blue")+
+   geom_point(x = 32.3, y = 0.5, size = 4, shape = 15, col = "orange")+
+  #ylim(-0.25,1)+
+  #annotate("rect", xmin = 20.5, xmax = 31.8, ymin = 0, ymax = 1, fill = "#90548bff", alpha = 0.3)+
+  # annotate("text", x = 12, y = -0.08, label = "chill stress")+
+  # annotate("text", x = 39.5, y = -0.08, label = "heat stress")+
+  # annotate("text", x = 28, y = -0.08, label = "optimal range")+
+  # 
+  #geom_segment(x = 12, y = 0, xend = 29, yend = 1)+
+  #annotate("text", x = 11, y = -0.08, label = expression("T"[0]))+
+  #theme(axis.text = element_text(size = 16))
+  #theme(axis.text.x= c("Tmin", "T0", "Topt", "Tmax"))+
+  #scale_x_continuous(breaks = c(8, 11, 31, 36), labels = c(expression("T"[min]), expression("T"[0]), expression("T"[opt]), expression("T"[high])))
+  #scale_x_continuous(breaks = c(9.5, 20.5, 39.5), labels = c("chill stress", "optimal range", "heat stress"))
+  scale_x_continuous(breaks = c(9.1,20.5,32.3,34.2), labels = c(expression("S"[l]), expression("D"[l]), expression("S"[h]), expression("D"[h])))+
+  scale_y_continuous(name = "Rate", 
+                     #sec.axis = sec_axis(~ .*1, name = "Survival",breaks = c(0, 0.5, 1)),
+                     breaks = c(0, 0.5, 1))
+  
+C1
+
+
+```
+
+
+```{r}
+C1data <- tibble(survival = c(32.3,9.1),
+                 Limit = factor(c("high", "low")),
+                 development = c(34.2, 19.5)
+                 )
+C2 <- ggplot(C1data, aes(x = survival, y = development, shape = Limit, col = Limit))+
+  geom_point(size = 5, alpha = 0.5)+
+  geom_point(size = 3)+
+  scale_shape_manual(values = c(15,16))+
+  scale_color_manual(values = c("orange", "blue"))+
+  ylim(0,40)+
+  xlim(0,40)+
+  ylab("D limits (°C)")+
+  xlab("")+
+  geom_segment(x = 0, xend = 40, y = 0, yend = 40, col = "black", linetype = 2, size =0.5, alpha = 0.1)+
+  theme_cowplot()+
+  theme(legend.position = "none")
+C2
+```
+
+
+
+D1
+```{r}
+D1 <- ggplot(ToyData, aes(x = temp, y = p5))+
+  
+ # performance
+  geom_line(size = 2, col = "#90548bff")+ # performance
+  #geom_segment(x = 24.8, y = 0.5, xend = 34.2, yend = 0.5, linetype = 1, col = "#90548bff", size = 2)+
+  annotate("rect", xmin = 24.8, xmax = 34.2, ymin = -Inf, ymax = 1, fill = "#90548bff", alpha = 0.3)+
+  annotate("text", x = 24.8, y = 0.01, label = expression("P"[l]), size = 5)+
+  annotate("text", x = 34.2, y = 0.01, label = expression("P"[h]), size = 5)+
+  
+  
+  # development
+  geom_line(data = ToyData, mapping = aes(x = temp, y = dr3), size = 2, col = "black", linetype = 3)+ #development rate
+  geom_segment(x = 20.5, y = 0.51, xend = 34.2, yend = 0.51, linetype = 3)+
+ # geom_segment(x = 20.5, y = -0.16, xend = 34.2, yend = -0.16, linetype = 3)+
+  #annotate("text", x = 19., y = 0, label = expression("D"[low]))+
+  #annotate("text", x = 35., y = 0, label = expression("D"[high]))+
+  # survival
+  geom_line(data = ToyData, mapping = aes(x = temp, y = surhigher/100), size = 1, linetype = 1, col = "grey40")+ # survival
+  geom_segment(x = 22.3, y = 0.49, xend = 37, yend = 0.49, linetype = 1, col = "grey40")+
+  #geom_segment(x = 22.3, y = -0.24, xend = 37, yend = -0.24, linetype = 1, col = "grey40")+
+ # annotate("text", x = 21.5, y = 0, label = expression("S"[low]))+
+  #annotate("text", x = 38, y = 0, label = expression("S"[high]))+
+  
+    
+    #geom_segment(x = 9.5, y = 0.49, xend = 39, yend = 0.49, linetype = 2)+
+  theme_cowplot()+
+ # annotate("text", x =5, y = 1, label = "D")+
+  ylab("Rate")+
+  xlab("Temperature (°C)")+
+  #ylim(-0.25,1)+
+  geom_point(x = 20.5, y = 0.5, size = 6, shape = 1, col = "blue")+
+   geom_point(x = 34.2, y = 0.5, size = 6, shape = 0, col = "orange")+
+   geom_point(x = 22.3, y = 0.5, size = 4, shape = 19, col = "blue")+
+   geom_point(x = 37, y = 0.5, size = 4, shape = 15, col = "orange")+
+  # annotate("text", x = 12, y = -0.08, label = "chill stress")+
+  # annotate("text", x = 39.5, y = -0.08, label = "heat stress")+
+  # annotate("text", x = 28, y = -0.08, label = "optimal range")+
+  # 
+  #geom_segment(x = 12, y = 0, xend = 29, yend = 1)+
+  #annotate("text", x = 12, y = -0.08, label = expression("T"[0]))+
+  #theme(axis.text = element_text(size = 16))
+  #theme(axis.text.x= c("Tmin", "T0", "Topt", "Tmax"))+
+  scale_y_continuous(  
+    #sec.axis = sec_axis(~ .*1, name = "Survival", breaks = c(0, 0.5, 1)),
+    breaks = c(0, 0.5, 1))+
+  scale_x_continuous(breaks = c(20.5, 22.3, 34.2, 37), labels = c(expression("D"[l]),expression("S"[l]),expression("D"[h]), expression("S"[h])))
+  #theme(axis.ticks.x = element_blank(),axis.ticks.y.left = element_blank(), axis.title.y.left = element_blank(), axis.title.y.right = element_text(colour = "black"),axis.text.y.left = element_blank(), axis.line.y.left = element_blank())
+# scale_x_continuous(breaks = c(9.5, 27, 39.5), labels = c("chill stress", "optimal range", "heat stress"))+
+  # theme(axis.ticks.x = element_blank())
+
+D1
+
+```
+
+
+
+```{r}
+D1data <- tibble(survival = c(37,22.3),
+                 Limit = factor(c("high", "low")),
+                 development = c(34.2, 20.5)
+                 )
+D2 <- ggplot(D1data, aes(x = survival, y = development, shape = Limit, col = Limit))+
+  geom_point(size = 5, alpha = 0.5)+
+  geom_point(size = 3)+
+  scale_shape_manual(values = c(15,16))+
+  scale_color_manual(values = c("orange", "blue"))+
+  ylim(0,40)+
+  xlim(0,40)+
+  ylab("D limits (°C)")+
+  xlab("S limits (°C)")+
+  
+  geom_segment(x = 0, xend = 40, y = 0, yend = 40, col = "black", linetype = 2, size =0.5, alpha = 0.1)+
+  theme_cowplot()+
+  theme(legend.position = "none")
+D2
+```
+
+Figure2
+```{r}
+F2 <- plot_grid(A1, A2, 
+                  B1, B2,
+                  C1,  C2,
+                  D1,  D2, ncol = 2, rel_widths = c(
+                  1, 0.75,
+                  1, 0.75,
+                  1, 0.75,
+                  1, 0.75), labels= "AUTO")
+
+F2
+```
+
+
+
+
+
+
+```{r}
+Figure_1Updated <- ggplot(ToyData, aes(x = temp, y = dr4))+
+  
+ # performance
+  # geom_line(size = 2, col = "#90548bff", alpha = 1)+ # performance, orange:"#E55C30FF", green: "#5DC863FF"
+  # geom_segment(x = 17.5, y = -0.08, xend = 31.3, yend = -0.08, linetype = 1, col =  "#90548bff", size = 2, alpha = 1)+
+  # annotate("rect", xmin = 17.5, xmax = 31.3, ymin = 0, ymax = 1, fill =  "#90548bff", alpha = 0.3)+
+  # annotate("text", x = 16, y = -0.08, label = expression("P"[low]))+
+  # annotate("text", x = 33, y = -0.08, label = expression("P"[high]))+
+  # 
+  # development
+  #geom_line(data = ToyData, mapping = aes(x = temp, y = dr5), size = 2, col = "darkgrey", linetype = 1)+
+  geom_smooth(data = ToyData, mapping = aes(x = temp, y = p5), se = F, size = 2, col = "darkgrey", linetype = 1)+
+  #geom_segment(x = 17.5, y = 0.51, xend = 31.3, yend = 0.51, linetype = 3)+
+  #geom_segment(x = 17.5, y = -0.16, xend = 31.3, yend = -0.16, linetype = 3)+
+  #annotate("text", x = 16, y = -0.16, label = expression("D"[low]))+
+  #annotate("text", x = 33, y = -0.16, label = expression("D"[high]))+
+ 
+  # # survival
+  #  geom_line(data = ToyData, mapping = aes(x = temp, y = shigher/100), size = 1, linetype = 1, col = "grey40")+ # survival
+  #  geom_segment(x = 9.1, y = 0.49, xend = 34.8, yend = 0.49, linetype = 1, col = "grey40")+
+  # geom_segment(x = 9.1, y = -0.24, xend = 34.8, yend = -0.24, linetype = 1, col = "grey40")+
+  # annotate("text", x = 8, y = -0.24, label = expression("S"[low]))+
+  # annotate("text", x = 36, y = -0.24, label = expression("S"[high]))+
+  #geom_segment(x = 9.5, y = 0.49, xend = 39, yend = 0.49, linetype = 2)+
+  theme_cowplot()+
+  #annotate("text", x =5, y = 1, label = "A")+
+  ylab("Development rate")+
+  xlab("Temperature")+
+ 
+ 
+  
+  # annotate("text", x = 12, y = -0.08, label = "chill stress")+
+  # annotate("text", x = 39.5, y = -0.08, label = "heat stress")+
+  # annotate("text", x = 28, y = -0.08, label = "optimal range")+
+  
+  # T0
+  geom_segment(x = 9, y = 0.0, xend = 26, yend = 1)+
+  #annotate("text", x = 9, y = -0.08, label = expression("T"[0]))+
+  theme(axis.text = element_text(size = 16))+
+  #theme(axis.text.x= c("Tmin", "T0", "Topt", "Tmax"))+
+  scale_x_continuous(breaks = c(5, 9, 26, 32), labels = c(expression("T"[min]), expression("T"[0]), expression("T"[opt]), expression("T"[max])))+
+  #scale_x_continuous(breaks = c(9.5, 20.5, 39.5), labels = c("chill stress", "optimal range", "heat stress"))
+   
+  # theme(axis.ticks.x = element_blank(), axis.title.y = element_text(colour = "grey40"), axis.title.y.left = element_text(colour = "black"))+
+  #scale_y_continuous(name = "Development rate", sec.axis = sec_axis(~ .*1, name = "Survival"),breaks = c(0, 0.5, 1))
+  scale_y_continuous(breaks = c(0, 0.5, 1))
+ 
+#theme(axis.title.x = element_text(colour = "red"))
+
+
+
+```
+
+
+
