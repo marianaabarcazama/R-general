@@ -1,0 +1,496 @@
+---
+title: "Development, Performance and Survival"
+output:
+  html_document:
+    df_print: paged
+---
+
+
+Analyses including only sets with data on all three variables: development, performance and survival.
+```{r, include=FALSE}
+library(tidyverse)
+library(readxl)
+library(cowplot)
+library(psych) # to get geometric mean
+library(lme4)
+library(car)
+library("dotwhisker")  # to make coefficient plots
+library(sjPlot) #prediction plots
+library(sjmisc)
+library(broom)
+library(effects)
+library(ggeffects)
+library(Hmisc)
+library(phyr)
+library(ape)
+library(nlme)
+library(stringr)
+library(phylotools)
+library(phytools)
+library(rr2)
+```
+
+
+```{r, message = FALSE}
+Lowresponses <- read_csv("~/Desktop/Projects/ThermalTManuscriptScripts/LowLimitsDPS.csv")
+Highresponses <- read_csv("~/Desktop/Projects/ThermalTManuscriptScripts/HighLimitsDPS.csv")
+Breadth <- read_csv("~/Desktop/Projects/ThermalTManuscriptScripts/BreadthDPS.csv")
+```
+
+We discarded "eggtoemergence" category in the subsequent analyses because it is a combination of the other three. We also discarded data from sets that were a combination of localities "combination".
+
+```{r}
+# convert character to factor
+Lowresponses <- Lowresponses %>%
+  mutate_if(is.character, factor)
+# discard non-pertinent data
+
+LowLimits <- Lowresponses %>% 
+  filter(lifestage == "egg"| lifestage == "larva"| lifestage == "pupa", 
+         #quality!= "inferred", 
+         quality != "combination") %>% 
+  mutate(absLat = abs(lat)) 
+LowLimits$lifestage <- factor(LowLimits$lifestage)
+LowLimits$sp <- factor(LowLimits$sp)
+
+
+# High limits
+Highresponses <- Highresponses %>%
+  mutate_if(is.character, factor)
+# discard non-pertinent data
+
+HighLimits <- Highresponses %>% 
+  filter(lifestage == "egg"| lifestage == "larva"| lifestage == "pupa", 
+         #quality!= "inferred", 
+         quality != "combination") %>% 
+  mutate(absLat = abs(lat)) 
+HighLimits$lifestage <- factor(HighLimits$lifestage)
+HighLimits$sp <- factor(HighLimits$sp)
+
+# Breadth
+
+Breadthresponses <- Breadth %>%
+  mutate_if(is.character, factor)
+# discard non-pertinent data
+
+BreadthLimits <- Breadthresponses %>% 
+  filter(lifestage == "egg"| lifestage == "larva"| lifestage == "pupa", 
+         #quality!= "inferred", 
+         quality != "combination") %>% 
+  mutate(absLat = abs(lat)) 
+BreadthLimits$lifestage <- factor(BreadthLimits$lifestage)
+BreadthLimits$sp <- factor(BreadthLimits$sp)
+```
+
+Get how many sets were included in these comparative analysis:
+59 sets including 40 species
+```{r}
+lowsets <- unique(Lowresponses$set)
+highsets <- unique(Highresponses$set)
+breadthsets <- unique(Breadth$set)
+
+totalsets <- tibble(set = c(lowsets, highsets,breadthsets))
+length(unique(totalsets$set)) # we had 59 total sets
+lowsp <- unique(Lowresponses$sp)
+highsp <- unique(Highresponses$sp)
+breadthsp <- unique(Breadth$sp)
+
+totalsp <- tibble(sp = c(lowsp, highsp,breadthsp))
+length(unique(totalsp$sp)) # 40 species
+
+```
+
+# Variation of low limits across latitude and lifestages
+Development
+```{r}
+
+Dl_i <- lmer(Dl ~ -1 + lifestage + absLat + lifestage:absLat + (1|sp), data = as.data.frame(LowLimits)) #
+Dl_a <- lmer(Dl ~ -1 + absLat + lifestage + (1|sp), data = as.data.frame(LowLimits)) #
+
+anova(Dl_i, Dl_a, test.statistic = "Chisq") 
+```
+
+```{r}
+Dl_a_ML <- lmer(Dl ~ -1 + absLat + lifestage +  (1|sp), REML = F, data = as.data.frame(LowLimits)) #
+summary(Dl_a_ML)
+#plot(Dl_a_ML)
+
+```
+
+```{r}
+# Predictions plot
+LowLimits$group <- factor(LowLimits$lifestage)
+predlow <- ggpredict(Dl_i, terms = c("absLat","lifestage"))
+Dlow_plot <- ggplot(predlow, aes(x = x, y = predicted, colour = group, fill = group)) +
+  geom_line(size = 2 )+
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high, col = group), alpha = 0.1,linetype = 2)+
+  scale_fill_viridis_d(option = "plasma", begin = 0, end = 0.8)+
+  scale_color_viridis_d(option = "plasma", begin = 0, end = 0.8)+
+  ylab(expression(D[l]))+
+  xlab("")+
+  ylim(5, 30)+
+  annotate("text", x = 0, y = 30, label = "D", size = 5)+
+  #geom_point(data = LowLimits, mapping = aes(x = absLat, y = Dl, col = group), alpha = 0.6, shape = 16)+
+  #geom_point(data = LowLimits, mapping = aes(x = absLat, y = Dmin, col = group), alpha = 1, shape = 22)+
+  theme_cowplot()+
+  theme(legend.title = element_blank(), legend.position = "none", plot.title = element_text(hjust = 0.5))
+
+
+Dlow_plot
+```
+
+
+Performance
+
+```{r}
+
+Pl_i <- lmer(Pl ~ -1 + lifestage + absLat + lifestage:absLat + (1|sp), data = as.data.frame(LowLimits)) #
+Pl_a <- lmer(Pl ~ -1 + absLat + lifestage + (1|sp), data = as.data.frame(LowLimits)) #
+
+anova(Pl_i, Pl_a, test.statistic = "Chisq") 
+```
+
+```{r}
+Pl_a_ML <- lmer(Pl ~ -1 + absLat + lifestage +  (1|sp), REML = F, data = as.data.frame(LowLimits)) #
+summary(Pl_a_ML)
+#plot(Pl_a_ML)
+```
+
+```{r}
+# Predictions plot
+LowLimits$group <- factor(LowLimits$lifestage)
+Ppredlow <- ggpredict(Pl_i, terms = c("absLat","lifestage"))
+Plow_plot <- ggplot(Ppredlow, aes(x = x, y = predicted, colour = group, fill = group)) +
+  geom_line(size = 2)+
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high, col = group), alpha = 0.1, linetype = 2)+
+  scale_fill_viridis_d(option = "plasma", begin = 0, end = 0.8)+
+  scale_color_viridis_d(option = "plasma", begin = 0, end = 0.8)+
+  ylab(expression(P[l]))+
+  xlab("")+
+  ylim(5, 30)+
+  annotate("text", x = 0, y = 30, label = "F", size = 5)+
+  #geom_point(data = LowLimits, mapping = aes(x = absLat, y = Pl, col = group), alpha = 0.6, shape = 16)+
+  #geom_point(data = LowLimits, mapping = aes(x = absLat, y = Dmin, col = group), alpha = 1, shape = 22)+
+  theme_cowplot()+
+  theme(legend.title = element_blank(), legend.position = "none", plot.title = element_text(hjust = 0.5))
+
+# Save model predictions for plots
+#write_csv(Ppredlow,"~/Desktop/Projects/ThermalTManuscriptScripts/Pl-DP.csv")
+
+
+Plow_plot
+```
+
+
+Survival
+
+```{r}
+
+Sl_i <- lmer(Sl ~ -1 + lifestage + absLat + lifestage:absLat + (1|sp), data = as.data.frame(LowLimits)) #
+Sl_a <- lmer(Sl ~ -1 + absLat + lifestage + (1|sp), data = as.data.frame(LowLimits)) #
+
+anova(Sl_i, Sl_a, test.statistic = "Chisq") 
+```
+
+```{r}
+Sl_a_ML <- lmer(Pl ~ -1 + absLat + lifestage +  (1|sp), REML = F, data = as.data.frame(LowLimits)) #
+summary(Sl_a_ML)
+# plot(Sl_a_ML)
+```
+
+```{r}
+# Predictions plot
+LowLimits$group <- factor(LowLimits$lifestage)
+Spredlow <- ggpredict(Sl_i, terms = c("absLat","lifestage"))
+Slow_plot <- ggplot(Spredlow, aes(x = x, y = predicted, colour = group, fill = group)) +
+  geom_line(size = 2)+
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high, col = group), alpha = 0.1, linetype = 2)+
+  scale_fill_viridis_d(option = "plasma", begin = 0, end = 0.8)+
+  scale_color_viridis_d(option = "plasma", begin = 0, end = 0.8)+
+  ylab(expression(S[l]))+
+  xlab("")+
+  ylim(5, 30)+
+  annotate("text", x = 0, y = 30, label = "E", size = 5)+
+  #geom_point(data = LowLimits, mapping = aes(x = absLat, y = Pl, col = group), alpha = 0.6, shape = 16)+
+  #geom_point(data = LowLimits, mapping = aes(x = absLat, y = Dmin, col = group), alpha = 1, shape = 22)+
+  theme_cowplot()+
+  theme(legend.title = element_blank(), legend.position = "none")
+
+# Save model predictions for plots
+#write_csv(Ppredlow,"~/Desktop/Projects/ThermalTManuscriptScripts/Pl-DP.csv")
+
+
+Slow_plot
+```
+
+
+lowplots
+
+```{r}
+#plot_grid(Dlow_plot, Slow_plot, Plow_plot, ncol = 3)
+```
+
+
+
+# Variation of High limits accros latitudes and lifestages
+
+```{r}
+
+Dh_i <- lmer(Dh ~ -1 + lifestage + absLat + lifestage:absLat + (1|sp), data = as.data.frame(HighLimits)) #
+Dh_a <- lmer(Dh ~ -1 + absLat + lifestage + (1|sp), data = as.data.frame(HighLimits)) #
+
+anova(Dh_i, Dh_a, test.statistic = "Chisq") 
+```
+
+```{r}
+Dh_i_ML <- lmer(Dh ~ -1 + lifestage + absLat + lifestage:absLat + (1|sp), data = as.data.frame(HighLimits)) #
+summary(Dh_i_ML)
+#plot(Dh_i_ML)
+```
+
+```{r}
+# Predictions plot
+HighLimits$group <- factor(HighLimits$lifestage)
+Dpredhigh <- ggpredict(Dh_i_ML, terms = c("absLat","lifestage"))
+Dhigh_plot <- ggplot(Dpredhigh, aes(x = x, y = predicted, colour = group, fill = group)) +
+  geom_line(size = 2)+
+ geom_ribbon(aes(ymin = conf.low, ymax = conf.high, col = group), alpha = 0.1, linetype = 2)+
+  scale_fill_viridis_d(option = "plasma", begin = 0, end = 0.8)+
+  scale_color_viridis_d(option = "plasma", begin = 0, end = 0.8)+
+  ylab(expression(D[h]))+
+  xlab("")+
+  ylim(25, 40)+
+  annotate("text", x = 0, y = 40, label = "A", size = 5)+
+  ggtitle(label = "Development")+
+ # geom_point(data = HighLimits, mapping = aes(x = absLat, y = Dh, col = group), alpha = 0.6, shape = 16)+
+  #geom_point(data = HighLimits, mapping = aes(x = absLat, y = Dmin, col = group), alpha = 1, shape = 22)+
+  theme_cowplot()+
+  theme(legend.title = element_blank(), legend.position = "none", plot.title = element_text(hjust = 0.5))
+
+
+
+Dhigh_plot
+```
+
+
+Performance
+
+```{r}
+
+Ph_i <- lmer(Ph ~ -1 + lifestage + absLat + lifestage:absLat + (1|sp), data = as.data.frame(HighLimits)) #
+Ph_a <- lmer(Ph ~ -1 + absLat + lifestage + (1|sp), data = as.data.frame(HighLimits)) #
+
+anova(Ph_i, Ph_a, test.statistic = "Chisq") 
+```
+
+```{r}
+Ph_i_ML <- lmer(Ph ~ -1 + lifestage + absLat + lifestage:absLat + (1|sp), REML = F, data = as.data.frame(HighLimits)) #
+summary(Ph_i_ML)
+#plot(Ph_i_ML)
+```
+
+```{r}
+# Predictions plot
+HighLimits$group <- factor(HighLimits$lifestage)
+Ppredhigh <- ggpredict(Ph_i, terms = c("absLat","lifestage"))
+Phigh_plot <- ggplot(Ppredhigh, aes(x = x, y = predicted, colour = group, fill = group)) +
+  geom_line(size = 2)+
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high, col = group), alpha = 0.1, linetype = 2)+
+  scale_fill_viridis_d(option = "plasma", begin = 0, end = 0.8)+
+  scale_color_viridis_d(option = "plasma", begin = 0, end = 0.8)+
+  ylab(expression(P[h]))+
+  xlab("")+
+  ylim(25, 40)+
+  annotate("text", x = 0, y = 40, label = "C", size = 5)+
+  ggtitle(label = "Performance")+
+  #geom_point(data = HighLimits, mapping = aes(x = absLat, y = Ph, col = group), alpha = 0.6, shape = 16)+
+  #geom_point(data = LowLimits, mapping = aes(x = absLat, y = Dmin, col = group), alpha = 1, shape = 22)+
+  theme_cowplot()+
+  theme(legend.title = element_blank(), legend.position = "none", plot.title = element_text(hjust = 0.5))
+
+# Save model predictions for plots
+#write_csv(Ppredhigh,"~/Desktop/Projects/ThermalTManuscriptScripts/Ph-DP.csv")
+
+
+Phigh_plot
+```
+
+
+Survival
+
+```{r}
+
+Sh_i <- lmer(Sh ~ -1 + lifestage + absLat + lifestage:absLat + (1|sp), data = as.data.frame(HighLimits)) #
+Sh_a <- lmer(Sh ~ -1 + absLat + lifestage + (1|sp), data = as.data.frame(HighLimits)) #
+
+anova(Sh_i, Sh_a, test.statistic = "Chisq") 
+```
+
+```{r}
+Sh_i_ML <- lmer(Sh ~ -1 + lifestage + absLat + lifestage:absLat + (1|sp), REML = F, data = as.data.frame(HighLimits)) #
+summary(Sh_i_ML)
+#plot(Sh_i_ML)
+```
+
+```{r}
+# Predictions plot
+HighLimits$group <- factor(HighLimits$lifestage)
+Spredhigh <- ggpredict(Sh_i, terms = c("absLat","lifestage"))
+Shigh_plot <- ggplot(Spredhigh, aes(x = x, y = predicted, colour = group, fill = group)) +
+  geom_line(size = 2)+
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high, col = group), alpha = 0.1, linetype = 2)+
+  scale_fill_viridis_d(option = "plasma", begin = 0, end = 0.8)+
+  scale_color_viridis_d(option = "plasma", begin = 0, end = 0.8)+
+  ylab(expression(S[h]))+
+  xlab("")+
+  ylim(25, 40)+
+  ggtitle(label = "Survival")+
+  annotate("text", x = 0, y = 40, label = "B", size = 5)+
+  #geom_point(data = HighLimits, mapping = aes(x = absLat, y = Ph, col = group), alpha = 0.6, shape = 16)+
+  #geom_point(data = LowLimits, mapping = aes(x = absLat, y = Dmin, col = group), alpha = 1, shape = 22)+
+  theme_cowplot()+
+  theme(legend.title = element_blank(), legend.position = "none", plot.title = element_text(hjust = 0.5))
+
+Shigh_plot
+```
+
+
+High limits plots
+```{r}
+#plot_grid(Dhigh_plot, Shigh_plot, Phigh_plot, ncol = 3)
+```
+
+
+Breadth
+Development breadth
+```{r}
+
+DB_i <- lmer(Dbreadth ~ -1 + lifestage + absLat + lifestage:absLat + (1|sp), data = as.data.frame(BreadthLimits)) #
+DB_a <- lmer(Dbreadth ~ -1 + absLat + lifestage + (1|sp), data = as.data.frame(BreadthLimits)) #
+
+anova(DB_i, DB_a, test.statistic = "Chisq") # keep interaction model, plot interaction
+```
+
+```{r}
+DB_a_ML <- lmer(Dbreadth ~ -1 + lifestage + absLat +  (1|sp), REML = F, data = as.data.frame(BreadthLimits)) #
+summary(DB_a_ML)
+#plot(DB_a_ML)
+```
+
+```{r}
+# Predictions plot
+BreadthLimits$group <- factor(BreadthLimits$lifestage)
+DbreadthPred <- ggpredict(DB_i, terms = c("absLat","lifestage"))
+Dbreadth_plot <- ggplot(DbreadthPred, aes(x = x, y = predicted, colour = group, fill = group)) +
+  geom_line(size = 2)+
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high, col = group), alpha = 0.1, linetype = 2)+
+  scale_fill_viridis_d(option = "plasma", begin = 0, end = 0.8)+
+  scale_color_viridis_d(option = "plasma", begin = 0, end = 0.8)+
+  ylab(expression(D[Breadth]))+
+  xlab("Absolute latitude")+
+  ylim(5, 30)+
+  annotate("text", x = 0, y = 30, label = "G", size = 5)+
+  #geom_point(data = HighLimits, mapping = aes(x = absLat, y = Ph, col = group), alpha = 0.6, shape = 16)+
+  #geom_point(data = LowLimits, mapping = aes(x = absLat, y = Dmin, col = group), alpha = 1, shape = 22)+
+  theme_cowplot()+
+  theme(legend.title = element_blank(), legend.position = "none")
+
+Dbreadth_plot
+```
+
+
+
+
+Performance breadth
+```{r}
+
+PB_i <- lmer(Pbreadth ~ -1 + lifestage + absLat + lifestage:absLat + (1|sp), data = as.data.frame(BreadthLimits)) #
+PB_a <- lmer(Pbreadth ~ -1 + absLat + lifestage + (1|sp), data = as.data.frame(BreadthLimits)) #
+
+anova(PB_i, PB_a, test.statistic = "Chisq") # 
+```
+
+```{r}
+PB_a_ML <- lmer(Pbreadth ~ -1 + lifestage + absLat +  (1|sp), REML = F, data = as.data.frame(BreadthLimits)) #
+summary(PB_a_ML)
+#plot(PB_a_ML)
+
+```
+
+```{r}
+# Predictions plot
+BreadthLimits$group <- factor(BreadthLimits$lifestage)
+PbreadthPred <- ggpredict(PB_i, terms = c("absLat","lifestage"))
+Pbreadth_plot <- ggplot(PbreadthPred, aes(x = x, y = predicted, colour = group, fill = group)) +
+  geom_line(size = 2)+
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high, col = group), alpha = 0.1, linetype = 2)+
+  scale_fill_viridis_d(option = "plasma", begin = 0, end = 0.8)+
+  scale_color_viridis_d(option = "plasma", begin = 0, end = 0.8)+
+  ylab(expression(P[Breadth]))+
+  xlab("Absolute latitude")+
+  ylim(5, 30)+
+  annotate("text", x = 0, y = 30, label = "I", size = 5)+
+  #geom_point(data = HighLimits, mapping = aes(x = absLat, y = Ph, col = group), alpha = 0.6, shape = 16)+
+  #geom_point(data = LowLimits, mapping = aes(x = absLat, y = Dmin, col = group), alpha = 1, shape = 22)+
+  theme_cowplot()+
+  theme(legend.title = element_blank(), legend.position = c(0.2,0.75))
+
+Pbreadth_plot
+```
+
+Survival breadth
+
+
+```{r}
+
+SB_i <- lmer(Sbreadth ~ -1 + lifestage + absLat + lifestage:absLat + (1|sp), data = as.data.frame(BreadthLimits)) #
+SB_a <- lmer(Sbreadth ~ -1 + absLat + lifestage + (1|sp), data = as.data.frame(BreadthLimits)) #
+
+anova(SB_i, SB_a, test.statistic = "Chisq") # 
+```
+
+```{r}
+SB_i_ML <- lmer(Sbreadth ~ -1 + lifestage + absLat + lifestage:absLat + (1|sp), REML = F, data = as.data.frame(BreadthLimits)) #
+summary(SB_i_ML)
+#plot(SB_i_ML)
+
+```
+
+```{r}
+# Predictions plot
+BreadthLimits$group <- factor(BreadthLimits$lifestage)
+SbreadthPred <- ggpredict(SB_i, terms = c("absLat","lifestage"))
+Sbreadth_plot <- ggplot(SbreadthPred, aes(x = x, y = predicted, colour = group, fill = group)) +
+  geom_line(size = 2)+
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high, col = group), alpha = 0.1, linetype = 2)+
+  scale_fill_viridis_d(option = "plasma", begin = 0, end = 0.8)+
+  scale_color_viridis_d(option = "plasma", begin = 0, end = 0.8)+
+  ylab(expression(S[Breadth]))+
+  xlab("Absolute latitude")+
+  ylim(5, 30)+
+  annotate("text", x = 0, y = 30, label = "H", size = 5)+
+  #geom_point(data = HighLimits, mapping = aes(x = absLat, y = Ph, col = group), alpha = 0.6, shape = 16)+
+  #geom_point(data = LowLimits, mapping = aes(x = absLat, y = Dmin, col = group), alpha = 1, shape = 22)+
+  theme_cowplot()+
+  theme(legend.title = element_blank(), legend.position = "none")
+
+
+
+Sbreadth_plot
+```
+
+
+Breadth plots
+```{r}
+#plot_grid(Dbreadth_plot, Sbreadth_plot, Pbreadth_plot, ncol = 3)
+```
+
+
+Run this code in regular script file to make figure:
+```{r}
+# plot_grid(Dhigh_plot, Shigh_plot, Phigh_plot,
+#           Dlow_plot, Slow_plot, Plow_plot,
+#           Dbreadth_plot, Sbreadth_plot, Pbreadth_plot, ncol = 3)
+```
+
+
