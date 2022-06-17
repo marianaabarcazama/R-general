@@ -6,7 +6,7 @@ output: html_notebook
 
 
 ```{r}
-#remotes::install_github("padpadpadpad/rTPC")
+remotes::install_github("padpadpadpad/rTPC")
 library(rTPC)
 library(nls.multstart)
 ```
@@ -28,7 +28,7 @@ library(sjPlot) #prediction plots
 library(sjmisc)
 library(broom)
 library(devRate)
-
+library(minpack.lm)
 ```
 
 
@@ -39,20 +39,45 @@ library(devRate)
 
 ToyData <- read_xlsx("~/Desktop/Projects/ThermalStressCompilation/Toydata.xlsx", 
                   sheet = "toy2", na = c("NA", ""))
+Data <- read_xlsx("~/Desktop/Projects/ThermalPerformance/PhysiologyDatabaseVersion5.xlsx", 
+                  sheet = "WorkingTable", na = c("NA", ""))
+treats <- Data %>% 
+  group_by(set) %>% 
+  summarise(count= n())
+
+
+ggplot(filter(Data, set == 60), aes(x = temp, y = 1/dt))+
+  geom_point()
+```
+
+
+```{r}
+
+
+ex <- Data %>% 
+  filter(set == 60) %>% 
+  mutate(dr = (1/dt)/0.427) %>% 
+  filter(!is.na(dr)) %>% 
+  select(set, temp, dr)
+
 d <- ToyData %>% 
   select(temp, dr5) %>% 
   filter( ! is.na(dr5))
+a = 
 mod = "lactin2_1995"
 # get start values
-start_vals <- get_start_vals(d$temp, d$dr5, model_name = "lactin2_1995")
+#start_vals <- get_start_vals(d$temp, d$dr5, model_name = "lactin2_1995")
+start_vals <- get_start_vals(ex$temp, ex$dr, model_name = "lactin2_1995")
 # get limits
-low_lims <- get_lower_lims(d$temp, d$dr5, model_name = "lactin2_1995")
-upper_lims <- get_upper_lims(d$temp, d$dr5, model_name = "lactin2_1995")
+#low_lims <- get_lower_lims(d$temp, d$dr5, model_name = "lactin2_1995")
+low_lims <- get_lower_lims(ex$temp, ex$dr, model_name = "lactin2_1995")
+#upper_lims <- get_upper_lims(d$temp, d$dr5, model_name = "lactin2_1995")
+upper_lims <- get_upper_lims(ex$temp, ex$dr, model_name = "lactin2_1995")
 
 
 
-fit <- nls_multstart(dr5~lactin2_1995(temp = temp, a,b,tmax,delta_t),
-                                                     data = d,
+fit <- nls_multstart(dr~lactin2_1995(temp = temp, a,b,tmax,delta_t),
+                                                     data = ex,
                                                      iter = 500,
                                                      start_lower = start_vals - 10,
                                                      start_upper = start_vals + 10,
@@ -61,95 +86,53 @@ fit <- nls_multstart(dr5~lactin2_1995(temp = temp, a,b,tmax,delta_t),
                                                      supp_errors = 'Y', 
                      convergence_count = FALSE)
 fit
+linearPortion <- ex[3:9, ]
+fitLinear <- lm(dr~ temp, data = linearPortion)
 
+## decorate lm object with a new class lm_left
+lm_left <- function(formula,data,...){
+  mod <- lm(formula,data)
+  class(mod) <- c('lm_left',class(mod))
+  mod
+}
 
+predictdf.lm_left <- 
+  function(model, xseq, se, level){
+    init_range = range(model$model$x)
+    ## here the main code: truncate to x values at the left
+    xseq <- xseq[xseq <=init_range[2]]
+    ggplot2:::predictdf.default(model, xseq[-length(xseq)], se, level)
+  }
 ```
 
 ```{r}
-
+max(ex$dr)
 # predict new data
-new_data <- data.frame(temp = seq(min(d$temp), max(d$temp), 0.5))
+new_data <- data.frame(temp = seq(5, 40, 0.5))
 preds <- augment(fit, newdata = new_data)
+
 # plot data and model fit
-ggplot(new_data, aes(temp, .fitted)) +
-  geom_line(aes(temp, .fitted), preds, col = 'grey40', size = 2) +
-  theme_cowplot()+
+ ggplot(new_data, aes(temp, .fitted)) +
+  geom_line(aes(temp, .fitted), preds, col = 'grey40', size = 1.5, alpha = 0.5) +
+  geom_point(data = ex, mapping = aes(x =temp, y = dr), col = 'black', size = 2, shape = 1) +
+  stat_smooth(mapping = aes(temp, dr), data = linearPortion, method = "lm_left", fullrange =T, se = F, col = "black", linetype = 2, size = 2, alpha = 0.5)+
+  theme_minimal()+
   ylab("Development rate")+
   xlab("Temperature")+
-  ylim(0, 1.1)+
-  xlim(2, 40)+
-  geom_segment(x = 10, y = 0, xend = 27.4, yend = 1.1, size = 2, linetype = 2)+
+  ylim(0, 1)+
+  xlim(0, 38)+
+  #geom_segment(x = 0, y = 0, xend = Inf, yend = 0, size = 1, linetype = 1)+
    
   #annotate("text", x = 9, y = -0.08, label = expression("T"[0]))+
   theme(axis.text = element_text(size = 16))+
   #theme(axis.text.x= c("Tmin", "T0", "Topt", "Tmax"))+
-  scale_x_continuous(breaks = c(7, 10, 27, 32), labels = c(expression("T"[min]), expression("T"[0]), expression("T"[opt]), expression("T"[max])))+
+  #scale_y_continuous(expand = expansion(mult = c(0, 0)))+
+ scale_x_continuous(breaks = c(11, 13, 32, 36), labels = c(expression("T"[min]), expression("T"[0]), expression("T"[opt]), expression("T"[max])), limits = c(5, 40))
    
-  theme(axis.ticks.x = element_blank(), axis.title.y = element_text(colour = "grey40"), axis.title.y.left = element_text(colour = "black"))+
+  #theme(axis.ticks.x = element_blank(), axis.title.y = element_text(colour = "grey40"), axis.title.y.left = element_text(colour = "black"))+
   #scale_y_continuous(name = "Development rate", sec.axis = sec_axis(~ .*1, name = "Survival"),breaks = c(0, 0.5, 1))
-  scale_y_continuous(breaks = c(0, 1))
-```
-
-
-
-
-
-
-
-
-Old Figure 1
-
-```{r}
-ToyData$p1 <- ToyData$dr2 *(ToyData$shigher/100)
-ToyData$p2 <- ToyData$dr2 *(ToyData$highequal/100)
-Figure_1 <- ggplot(ToyData, aes(x = temp, y = p1))+
+  #scale_y_continuous( breaks = c(0, 1))
   
- # performance
-  # geom_line(size = 2, col = "#90548bff", alpha = 1)+ # performance, orange:"#E55C30FF", green: "#5DC863FF"
-  # geom_segment(x = 17.5, y = -0.08, xend = 31.3, yend = -0.08, linetype = 1, col =  "#90548bff", size = 2, alpha = 1)+
-  # annotate("rect", xmin = 17.5, xmax = 31.3, ymin = 0, ymax = 1, fill =  "#90548bff", alpha = 0.3)+
-  # annotate("text", x = 16, y = -0.08, label = expression("P"[low]))+
-  # annotate("text", x = 33, y = -0.08, label = expression("P"[high]))+
-  # 
-  # development
-  #geom_line(data = ToyData, mapping = aes(x = temp, y = dr5), size = 2, col = "darkgrey", linetype = 1)+
-  geom_smooth(data = ToyData, mapping = aes(x = temp, y = dr5), se = F, size = 2, col = "darkgrey", linetype = 1)+
-  #geom_segment(x = 17.5, y = 0.51, xend = 31.3, yend = 0.51, linetype = 3)+
-  #geom_segment(x = 17.5, y = -0.16, xend = 31.3, yend = -0.16, linetype = 3)+
-  #annotate("text", x = 16, y = -0.16, label = expression("D"[low]))+
-  #annotate("text", x = 33, y = -0.16, label = expression("D"[high]))+
- 
-  # # survival
-  #  geom_line(data = ToyData, mapping = aes(x = temp, y = shigher/100), size = 1, linetype = 1, col = "grey40")+ # survival
-  #  geom_segment(x = 9.1, y = 0.49, xend = 34.8, yend = 0.49, linetype = 1, col = "grey40")+
-  # geom_segment(x = 9.1, y = -0.24, xend = 34.8, yend = -0.24, linetype = 1, col = "grey40")+
-  # annotate("text", x = 8, y = -0.24, label = expression("S"[low]))+
-  # annotate("text", x = 36, y = -0.24, label = expression("S"[high]))+
-  #geom_segment(x = 9.5, y = 0.49, xend = 39, yend = 0.49, linetype = 2)+
-  theme_cowplot()+
-  #annotate("text", x =5, y = 1, label = "A")+
-  ylab("Development rate")+
-  xlab("Temperature")+
- 
- 
-  
-  # annotate("text", x = 12, y = -0.08, label = "chill stress")+
-  # annotate("text", x = 39.5, y = -0.08, label = "heat stress")+
-  # annotate("text", x = 28, y = -0.08, label = "optimal range")+
-  
-  # T0
-  geom_segment(x = 9, y = 0.0, xend = 26, yend = 1)+
-  #annotate("text", x = 9, y = -0.08, label = expression("T"[0]))+
-  theme(axis.text = element_text(size = 16))+
-  #theme(axis.text.x= c("Tmin", "T0", "Topt", "Tmax"))+
-  scale_x_continuous(breaks = c(5, 9, 26, 32), labels = c(expression("T"[min]), expression("T"[0]), expression("T"[opt]), expression("T"[max])))+
-  #scale_x_continuous(breaks = c(9.5, 20.5, 39.5), labels = c("chill stress", "optimal range", "heat stress"))
-   
-  # theme(axis.ticks.x = element_blank(), axis.title.y = element_text(colour = "grey40"), axis.title.y.left = element_text(colour = "black"))+
-  #scale_y_continuous(name = "Development rate", sec.axis = sec_axis(~ .*1, name = "Survival"),breaks = c(0, 0.5, 1))
-  scale_y_continuous(breaks = c(0, 0.5, 1))
- 
-#theme(axis.title.x = element_text(colour = "red"))
 
 ```
 
@@ -158,7 +141,7 @@ When the interval of temperatures that allow for 50% survival is larger on both 
 
 ```{r}
 
-Figure_1
+Figure1
 
 ```
 
